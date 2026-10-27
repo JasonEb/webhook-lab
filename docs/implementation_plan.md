@@ -5,7 +5,7 @@ Companion to `architecture.md`. Last updated 2026-10-27, updated for decisions D
 ## 0. Plan
 **Suggested project name:** Quo Webhook Lab
 
-**Knowledge files to upload:** `architecture.md`, this file, and later the findings doc and any code you want reviewed.
+**Knowledge files to upload:** `architecture.md`, this file, `phase_0_implementation_plan.md` through `phase_4_implementation_plan.md` and their matching `phase_N_summary.md` files, `bug_log.md`, `plan_deviations.md`, and later the findings doc and any code you want reviewed.
 
 **Suggested project instructions (paste into the project):**
 > I am building the Quo Webhook Lab described in the knowledge files, in Node/TypeScript. Treat `architecture.md` as the source of truth for design and this plan for sequencing. The decisions in architecture section 6 (D1 to D10) are settled; reopen one only when an experiment contradicts it. Work one phase at a time. Before writing code for a phase, restate the acceptance criteria. Keep the documented-versus-unknown distinction for Quo behavior: never state an unknown as fact, and flag when a result contradicts the docs. Prefer small, testable steps and tests first. I want to understand each piece, so explain trade-offs briefly and ask me questions where I should make the call. Remind me to redact personal data in anything I paste.
@@ -14,7 +14,7 @@ Companion to `architecture.md`. Last updated 2026-10-27, updated for decisions D
 1. "Walk me through Phase 0 and help me create the Quo test workspace and webhook subscription."
 2. "Let's do Phase 1. Write the failing tests for signature verification first."
 3. "Review my Phase 2 ingest route against the failure-modes table."
-Keep a running `decisions.md` in the project and update it when a result changes the design.
+Keep a running `decisions.md` in the project and update it when a result changes the design. **In practice this became three files, not one:** `architecture.md` section 2/6 for resolved facts and decisions, `bug_log.md` for defects found and fixed, and `plan_deviations.md` for places this plan's own assumptions turned out wrong. Each phase also has a `phase_N_implementation_plan.md` (detailed steps, written before executing) and a `phase_N_summary.md` (what actually happened, written after) — this file stays the high-level sequencing reference; the granular ones are where the detail and the history live.
 
 ## 1. Guiding principles
 - **Measure before assuming.** The core dedupe assumption (`webhook-id` is stable across retries) is verified first, in Phase 2.
@@ -24,80 +24,80 @@ Keep a running `decisions.md` in the project and update it when a result changes
 - **Ship small and publicly.** A clean repo plus a short findings write-up beats a large unfinished system.
 
 ### Settled design decisions (from architecture section 6)
-- **D1** Acknowledge fast, process in the background.
-- **D2** Dedupe on `webhook-id`, pending E1; fall back to a hybrid payload-derived key if the id changes.
-- **D3** SQLite outbox behind a small storage interface.
-- **D4** Verify the raw bytes before parsing.
-- **D5** Return 401 on a bad signature, pending E5.
-- **D6** Svix for verification now; a hand-rolled version later as a learning exercise.
-- **D7** Express (not Fastify).
-- **D8** No `arrivals` table at first; one structured log line per arrival.
-- **D9** Lease-based worker claims; choose the lease duration in Phase 3.
-- **D10** Stale-event guard on upserts; confirm the event timestamp field in Phase 0.
+- **D1** Acknowledge fast, process in the background. *Final, implemented Phase 2.*
+- **D2** Dedupe on the payload body's own `id` field (what Quo's delivery-list API calls `eventId`) — **not** literally the `webhook-id` HTTP header, which is a different identifier. *Final, E1 confirmed stable (Phase 2).*
+- **D3** SQLite outbox behind a small storage interface. *Final, implemented Phase 2/3 (`DeliveryStore`, `DomainStore`).*
+- **D4** Verify the raw bytes before parsing. *Final, implemented Phase 1/2.*
+- **D5** Return 401 on a bad signature, pending E5 (Phase 4).
+- **D6** Svix for verification now; a hand-rolled version later as a learning exercise (still deferred, not started). *Final, implemented Phase 1.*
+- **D7** Express (not Fastify). *Final, implemented Phase 2.*
+- **D8** No `arrivals` table at first; one structured log line per arrival. **Promoted to a table in Phase 4**, once the experiments needed queryable data, as planned — with one addition beyond the originally documented schema (a `label` column for per-experiment aggregation; see `plan_deviations.md`).
+- **D9** Lease-based worker claims. *Final, implemented Phase 3: 30s lease, 5 max attempts, exponential backoff capped at 60s with jitter.*
+- **D10** Stale-event guard on upserts. *Final, implemented Phase 3. Per-event-type timestamp fields all confirmed against real captures: `message.received` → `data.resource.createdAt`; `call.completed` → `data.resource.completedAt`; `call.summary.completed` → top-level `createdAt` (its resource has no timestamp of its own — a documented exception to the general rule, not a violation of it).*
 
 ## 2. Phases
 
-### Phase 0: Environment and ground truth (2 to 3 h)
+### Phase 0: Environment and ground truth (2 to 3 h) — ✅ Done
 **Tasks**
-- [ ] Create or use a personal Quo workspace with a test phone number. Confirm webhook API access and generate an API key.
-- [ ] Install Node 22, cloudflared (or ngrok), sqlite3 CLI.
-- [ ] Create the repo (`quo-webhook-lab`), TypeScript strict config, Vitest, ESLint/Prettier, `.env.example`, `.gitignore` (data/, .env).
-- [ ] Create a beta webhook subscription (`POST /webhooks`, pinned API version) pointing at a tunnel URL; save the `whsec_` secret.
-- [ ] Fire a test event (`POST /webhooks/:id/events/test`) and capture one raw request (headers and body) to a fixtures folder, with personal data redacted.
+- [x] Create or use a personal Quo workspace with a test phone number. Confirm webhook API access and generate an API key.
+- [x] Install Node 22, cloudflared (or ngrok), sqlite3 CLI.
+- [x] Create the repo (`quo-webhook-lab`), TypeScript strict config, Vitest, ESLint/Prettier, `.env.example`, `.gitignore` (data/, .env).
+- [x] Create a beta webhook subscription (`POST /webhooks`, pinned API version) pointing at a tunnel URL; save the `whsec_` secret. (Detour: the dashboard form creates legacy-format webhooks, not beta — had to use the API directly. See `plan_deviations.md` V1.)
+- [x] Fire a test event (`POST /webhooks/:id/events/test`) and capture one raw request (headers and body) to a fixtures folder, with personal data redacted.
 
-**Acceptance:** you hold one real captured delivery and know the actual header names, timestamp unit and payload shape. Update `architecture.md` section 2 "Unknown" items that this resolves (payload shape, timestamp unit, API version header name), and confirm which payload field carries the event time for the D10 stale-event guard.
+**Acceptance:** met. Full detail in `phase_0_implementation_plan.md` and `phase_0_summary.md`.
 
-### Phase 1: Signature verification (2 to 3 h)
+### Phase 1: Signature verification (2 to 3 h) — ✅ Done
 **Tasks**
-- [ ] `verifyQuoSignature(rawBody, headers, secret)` using Svix (D6).
-- [ ] Follow-up, can wait: a small hand-rolled HMAC check as a learning exercise, tested against the same fixtures.
-- [ ] Tests: valid signature; tampered body; wrong secret; missing headers; stale timestamp; future timestamp; multiple signatures in the header (after rotation).
-- [ ] Verify the captured real delivery from Phase 0 passes.
+- [x] `verifyQuoSignature(rawBody, headers, secret)` using Svix (D6).
+- [ ] Follow-up, can wait: a small hand-rolled HMAC check as a learning exercise, tested against the same fixtures. *(Still deferred — not blocking, per D6.)*
+- [x] Tests: valid signature; tampered body; wrong secret; missing headers; stale timestamp; future timestamp; multiple signatures in the header (after rotation). 10 tests total.
+- [x] Verify the captured real delivery from Phase 0 passes. (Split into two tests once a real fixture ages past the 5-minute tolerance — see `bug_log.md` D1.)
 
-**Acceptance:** all tests green, and the real captured request verifies. No parsing of JSON happens before verification.
+**Acceptance:** met. Full detail in `phase_1_implementation_plan.md` and `phase_1_summary.md`.
 
-### Phase 2: Ingest, arrival log and dedupe (3 to 4 h)
+### Phase 2: Ingest, arrival log and dedupe (3 to 4 h) — ✅ Done
 **Tasks**
-- [ ] SQLite setup and schema (`deliveries` and the domain tables) behind a small storage interface (D3). No `arrivals` table yet (D8).
-- [ ] Express route with `express.raw()` mounted on the webhook route only, before any JSON parser (D4, D7); verify, write one structured log line per arrival (webhook id, event type, timestamp, outcome), insert with `ON CONFLICT DO NOTHING`, respond 200.
-- [ ] Tests (using supertest against the Express app with locally signed requests): accepted; duplicate returns 200 with one row and two logged arrivals; bad signature returns 401 and stores nothing; malformed JSON after valid signature.
-- [ ] Run against live Quo with the tunnel. Send several test events.
-- [ ] **Experiment E1 (stability of `webhook-id`).** Use manual retry for one delivery and confirm the retried delivery carries the same `webhook-id`.
+- [x] SQLite setup and schema (`deliveries` and the domain tables) behind a small storage interface (D3). No `arrivals` table yet (D8).
+- [x] Express route with `express.raw()` mounted on the webhook route only, before any JSON parser (D4, D7); verify, write one structured log line per arrival (webhook id, event type, timestamp, outcome), insert with `ON CONFLICT DO NOTHING`, respond 200.
+- [x] Tests (using supertest against the Express app with locally signed requests): accepted; duplicate returns 200 with one row and two logged arrivals; bad signature returns 401 and stores nothing; malformed JSON after valid signature.
+- [x] Run against live Quo with the tunnel. Send several test events.
+- [x] **Experiment E1 (stability of `webhook-id`).** Use manual retry for one delivery and confirm the retried delivery carries the same `webhook-id`. **Result: stable** — though "the id" turned out to be two different identifiers in reality; see D2 above and `plan_deviations.md` V2.
 
-**Acceptance:** E1 result recorded. If `webhook-id` is not stable, stop and redesign dedupe (for example on a payload event id) before continuing. This is the project's biggest early risk.
+**Acceptance:** met — E1 confirmed stable, dedupe design held. Full detail in `phase_2_implementation_plan.md` and `phase_2_summary.md`.
 
-### Phase 3: Worker and handlers (4 to 5 h)
+### Phase 3: Worker and handlers (4 to 5 h) — ✅ Done
 **Tasks**
-- [ ] Worker loop with lease-based claims, exponential backoff with jitter, `maxAttempts`, `dead` state. Injectable clock and random source for tests. Choose the lease duration here (D9); a crash during processing counts as an attempt.
-- [ ] Handlers for `call.completed`, `call.summary.completed`, `message.received` with upserts and the stale-event guard.
-- [ ] Tests: success path; handler throws then succeeds on retry; poison event reaches `dead`; simulated crash (lease expiry) reclaims the row; out-of-order summary-before-call yields a correct joined read; stale event does not overwrite newer data.
-- [ ] `/healthz`, `/debug/deliveries`, `/debug/stats`, structured logging without payloads.
+- [x] Worker loop with lease-based claims, exponential backoff with jitter, `maxAttempts`, `dead` state. Injectable clock and random source for tests. Choose the lease duration here (D9); a crash during processing counts as an attempt. **30s lease, 5 max attempts.**
+- [x] Handlers for `call.completed`, `call.summary.completed`, `message.received` with upserts and the stale-event guard.
+- [x] Tests: success path; handler throws then succeeds on retry; poison event reaches `dead`; simulated crash (lease expiry) reclaims the row; out-of-order summary-before-call yields a correct joined read; stale event does not overwrite newer data. 26 tests total by end of phase.
+- [x] `/healthz`, `/debug/deliveries`, `/debug/stats`, structured logging without payloads.
 
-**Acceptance:** each row in the architecture failure-modes table that concerns processing has a passing test.
+**Acceptance:** met. Also caught 3 real bugs along the way (`bug_log.md` P1–P3) — notably `call.summary.completed`'s timestamp field, which a real call proved wrong before the phase could close. Full detail in `phase_3_implementation_plan.md` and `phase_3_summary.md`.
 
 ### Phase 4: Fault injection and the retry experiments (4 to 6 h)
 **Tasks**
-- [ ] Implement `FAULT_MODE` (`fail_first:N`, `slow:MS`).
-- [ ] Promote the arrival log lines to an `arrivals` table if the analysis needs queryable data (D8).
+- [ ] Implement `FAULT_MODE` (`fail_first:N`, `slow:MS`, **plus a `status:CODE:N` variant** — needed for E4, not in the original scope; see `phase_4_implementation_plan.md` 4.0).
+- [ ] Promote the arrival log lines to an `arrivals` table if the analysis needs queryable data (D8). **Plus a `label` column beyond the schema in `architecture.md` section 5**, so the analyzer can aggregate per experiment as section 4.6 calls for — flagged in `plan_deviations.md` once built.
 - [ ] Analyzer CLI: per-delivery arrival times, gaps, attempt counts, aggregate tables, export to CSV.
 - [ ] Run the experiments below, one at a time, with fresh test events. Save raw `arrivals` exports into `data/experiments/`.
 
 | ID | Question | Method | Record |
 |---|---|---|---|
-| E1 | Is `webhook-id` stable across retries? | Manual retry of a delivered event | ids of both attempts |
+| E1 | Is `webhook-id` stable across retries? | Manual retry of a delivered event | ids of both attempts — **done, Phase 2: confirmed stable, see D2 above** |
 | E2 | What is the automatic retry schedule and attempt limit? | `fail_first:100` (always 500) | arrival gaps until Quo stops; total attempts |
-| E3 | What is the delivery timeout? | `slow:MS` for several values (for example 2s, 5s, 10s, 30s) | whether Quo retries; response duration shown in Quo's attempt detail |
-| E4 | Which status codes are retried? | Respond 400, 401, 404, 410, 429, 500, 503, and a 3xx in turn | retry or no retry per code |
+| E3 | What is the delivery timeout? | `slow:MS` for several values (for example 2s, 5s, 10s, 30s) | whether Quo retries; **our own arrival timestamps only — Quo's delivery-detail API has no response-duration field, that assumption was already disproven in Phase 2 (`plan_deviations.md` V3)** |
+| E4 | Which status codes are retried? | Respond 400, 401, 404, 410, 429, 500, 503, and a 3xx in turn | retry or no retry per code — **needs the `status:CODE:N` `FAULT_MODE` extension, not buildable with the originally-scoped `fail_first`/`slow` alone** |
 | E5 | What happens with a bad signature or after secret rotation? | Wrong secret in config; then rotate via the API | retries or not; recovery procedure |
 | E6 | Does repeated failure disable the subscription? | Keep failing across several events | subscription `status` over time |
 | E7 | Are events ordered? | Trigger a call that produces several events quickly | arrival order versus event timestamps |
-| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | events recovered, duplicates absorbed |
+| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | events recovered, duplicates absorbed — **deferred out of Phase 4, needs the reconciler (a Phase 5 deliverable, below); run after Phase 5** |
 
-**Acceptance:** each experiment has a one-paragraph result and raw data. Where results contradict the docs, flag them clearly.
+**Acceptance:** each experiment has a one-paragraph result and raw data. Where results contradict the docs, flag them clearly. Full detail in `phase_4_implementation_plan.md` (plan written, not yet executed).
 
 ### Phase 5: Reconciler and write-up (3 to 4 h)
 **Tasks**
-- [ ] Quo API client (list deliveries paged, get detail, retry, test event) with both version header spellings sent until E-results settle which is correct.
+- [ ] Quo API client (list deliveries paged, get detail, retry, test event). The version header question is already settled (`Quo-Api-Version` only, confirmed Phase 0) — no need to send both spellings.
 - [ ] Reconciler: dry-run by default, `--apply` to retry; pacing; tests with a mocked client.
 - [ ] README: what it is, architecture diagram, quick start, how to run each experiment safely.
 - [ ] `FINDINGS.md`: measured retry behavior with tables and caveats (beta API, date measured, API version `2026-03-30`).
@@ -121,10 +121,10 @@ Keep a running `decisions.md` in the project and update it when a result changes
 ## 4. Risks and mitigations
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| `webhook-id` not stable across retries | Medium | E1 early in Phase 2; fall back to a payload event id |
+| ~~`webhook-id` not stable across retries~~ | ~~Medium~~ | **Resolved, Phase 2: confirmed stable.** |
 | Beta API changes mid-project | Medium | Pin `2026-03-30`; date-stamp findings |
-| Need a paid or specific plan for webhook or API access | Unknown | Confirm in Phase 0 before investing further |
-| Test events do not mirror real event payloads | Medium | Also trigger real events from your own test number |
+| ~~Need a paid or specific plan for webhook or API access~~ | ~~Unknown~~ | **Resolved, Phase 0: full access, no paid-plan blocker hit.** |
+| Test events do not mirror real event payloads | Medium | Also trigger real events from your own test number — **materialized exactly as feared**: test-triggered deliveries always carry a fixed canned payload and `eventId: null`; several real-event triggers were needed across Phases 0–3 specifically because test events weren't sufficient (E1, D10's per-event-type fields). |
 | Accidentally logging personal data | Medium | No-payload logging, redacted fixtures, review before every push |
 | Scope creep into a full product | High | Phase gates; the optional phase only after write-up |
 | Experiments cost real credits (messages) | Low to medium | Prefer call and test events; check pricing before message-sending tests |
@@ -143,12 +143,12 @@ Keep a running `decisions.md` in the project and update it when a result changes
 - Failure-mode thinking: out-of-order events, poison messages, crash recovery, secret rotation.
 
 ## 7. Open questions to resolve early
-1. Does your Quo plan include API and webhook access, and what are the limits?
-2. Does Quo document the retry policy anywhere not yet found (support site, changelog)?
-3. Which event types do you want as the main demo: calls plus summaries (richest for ordering) or messages (simplest)?
-4. Hosting for the demo: local plus tunnel only, or a small deployed instance?
-5. Optional: which web framework does Quo's team use? (D7 is settled as Express either way.)
-6. Does this build cover the webhook lab only, or also an inbound image pipeline? The domain tables would differ.
+1. ~~Does your Quo plan include API and webhook access, and what are the limits?~~ — resolved: yes, full access used extensively through Phase 3. No limits hit yet.
+2. Does Quo document the retry policy anywhere not yet found (support site, changelog)? — still open; Phase 4's E2 measures it empirically regardless, per the plan's "measure before assuming" principle.
+3. ~~Which event types do you want as the main demo?~~ — resolved: all three (`call.completed`, `call.summary.completed`, `message.received`) — the subscription (Phase 0) and handlers (Phase 3) cover all of them, not just one family.
+4. Hosting for the demo: local plus tunnel only, or a small deployed instance? — still open, a Phase 5/6 decision.
+5. Optional: which web framework does Quo's team use? (D7 is settled as Express either way.) — not pursued, still optional.
+6. ~~Does this build cover the webhook lab only, or also an inbound image pipeline?~~ — resolved: webhook lab only. No image-pipeline work exists anywhere in the project.
 
 ## 8. Definition of done
 - [ ] Tests pass locally and in CI.
