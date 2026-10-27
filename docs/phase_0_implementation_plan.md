@@ -73,7 +73,7 @@ npm init -y
 
 ## 0.4 Create the webhook subscription
 
-Do this with a direct API call so you see the real request/response shape (don't go through an SDK yet — Phase 0 is about ground truth).
+Two equivalent ways to do this — pick one. Either way, only `events` and `url` are required; `resourceIds` takes phone number **IDs** (`PN...`), not raw phone numbers.
 
 ```bash
 # Start the tunnel first so you have a URL to register
@@ -81,24 +81,28 @@ cloudflared tunnel --url http://localhost:3000
 # note the https://*.trycloudflare.com URL it prints
 ```
 
-- [ ] Start the tunnel, capture the generated public URL.
-- [ ] Create the subscription:
-  ```bash
-  curl -X POST https://api.quo.com/v1/webhooks \
-    -H "Authorization: Bearer $QUO_API_KEY" \
-    -H "Content-Type: application/json" \
-    -H "x-quo-api-version: 2026-03-30" \
-    -H "Quo-Api-Version: 2026-03-30" \
-    -d '{
-      "events": ["call.completed", "call.summary.completed", "message.received"],
-      "url": "<your tunnel URL>/webhooks/quo",
-      "label": "quo-webhook-lab-dev",
-      "resourceIds": ["<your test phone number>"]
-    }'
-  ```
-  (Sending both version header spellings is the open question noted in architecture.md section 2 — resolve which one actually works and record it.)
-- [ ] From the response, save: subscription `id`, the `whsec_...` secret, the pinned API version. Put the secret in `.env` (`QUO_WEBHOOK_SECRET`), not in any committed file.
-- [ ] Note which version header the response/docs actually require — update architecture.md section 2 once confirmed.
+**Option A — dashboard UI (recommended for this step):** it resolves the phone number → `PN...` ID mapping for you.
+- [ ] URL: `<tunnel URL>/webhooks/quo`
+- [ ] Label: `quo-webhook-lab-dev`
+- [ ] Event types: check only `call.completed`, `call.summary.completed`, `message.received` (the only ones with handlers planned in Phase 3) — leave Contacts unchecked
+- [ ] Turn off "Receive updates from all users" and select your one test phone number explicitly
+
+**Option B — direct API call**, if you want to see the raw request/response shape:
+```bash
+curl -X POST <base URL>/webhooks \
+  -H "Authorization: Bearer $QUO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Quo-Api-Version: 2026-03-30" \
+  -d '{
+    "events": ["call.completed", "call.summary.completed", "message.received"],
+    "url": "<your tunnel URL>/webhooks/quo",
+    "label": "quo-webhook-lab-dev",
+    "resourceIds": ["<your test phone number PN... id>"]
+  }'
+```
+  `<base URL>` isn't confirmed yet — check the API reference page itself for the actual host. To get the `PN...` id for your test number, check the phone number's settings page in the dashboard, or `GET /phone-numbers`.
+
+- [ ] From the response, save: `data.id` (subscription id), `data.key` (the `whsec_...` signing secret), `data.apiVersion`. Put the secret in `.env` (`QUO_WEBHOOK_SECRET`), not in any committed file.
 
 ## 0.5 Minimal capture script (throwaway, not the real receiver)
 
@@ -155,7 +159,7 @@ From `architecture.md` section 2, this phase should resolve:
 
 - [ ] **Payload shape** — `data.object` vs `data.resource`. Record which the beta API actually sent.
 - [ ] **Timestamp unit** — is `webhook-timestamp` seconds or milliseconds? Check the raw header value's magnitude.
-- [ ] **API version header name** — which of `x-quo-api-version` / `Quo-Api-Version` did the request/response actually use or require?
+- [x] **API version header name** — confirmed `Quo-Api-Version` via the API reference; `architecture.md` section 2 already updated.
 - [ ] **Event timestamp field for D10** — identify which payload field carries the authoritative event time (for the stale-event guard). Record the exact field path.
 - [ ] Edit `architecture.md` section 2 "Unknown" table: move resolved rows into the "Documented" table with the confirmed detail, citing "confirmed in Phase 0 capture, 2026-10-27" or the actual date you run this.
 

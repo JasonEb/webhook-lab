@@ -24,7 +24,8 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 ### Documented (treat as facts, still verify in experiments)
 | Topic | Detail |
 |---|---|
-| Subscription | `POST /webhooks` with events, `url`, `label`, optional `resourceIds` (phone numbers or `*`). API version is pinned per subscription at creation. |
+| Subscription | `POST /webhooks` with `events`, `url`, optional `label`, optional `resourceIds` (phone number **IDs** matching `^PN`, not raw numbers; `["*"]` or omitted = all), optional `status` (`enabled`\|`disabled`, default `enabled`). API version is pinned per subscription at creation. Response wraps the object in `data`; the signing secret is returned as `data.key` (a `whsec_...` value). Source: https://www.quo.com/docs/2026-03-30/webhooks/create-a-new-webhook |
+| API version header | `Quo-Api-Version: 2026-03-30` is the header the API reference documents as required. No mention of `x-quo-api-version` in the reference for `POST /webhooks`. |
 | Signing | Standard Webhooks style: `webhook-id`, `webhook-timestamp`, `webhook-signature`. Secret is `whsec_...` base64, compatible with the Svix SDK. |
 | Raw body | Verification needs the exact raw bytes of the request body. |
 | Test events | `POST /webhooks/:id/events/test` with `{ "eventType": ... }`. |
@@ -42,7 +43,6 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 - Whether repeated failure auto-disables a subscription.
 - Ordering guarantees between events for the same call or conversation.
 - Exact payload shape (`data.object` vs `data.resource` differs between schemes) and whether `webhook-timestamp` is seconds or milliseconds.
-- Header name for API version: the quickstart shows `x-quo-api-version`, the OpenAPI spec shows `Quo-Api-Version`. The client sends both until confirmed.
 - Whether `webhook-id` is stable across retries of the same event (assumed yes; this is the core dedupe assumption and must be verified first).
 
 ## 3. System overview
