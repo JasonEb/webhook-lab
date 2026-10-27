@@ -1,0 +1,48 @@
+{
+  "note": "Captured 2026-10-27 via POST /webhooks/:id/events/test (eventType call.completed). All ids are Quo's fixed placeholder/sample data, not a real call. Headers trimmed to the ones relevant to verification; Cloudflare/Datadog/tracing noise removed.",
+  "headers": {
+    "content-type": "application/json",
+    "svix-id": "msg_3LI0cTvjK1l5PC8FRC0CfkQdKmd",
+    "svix-signature": "v1,a2ozGVMIF/MTz+W6hnWZKPQIs2HJiKiiqrQix4xYdTk=",
+    "svix-timestamp": "1793126353",
+    "webhook-id": "msg_3LI0cTvjK1l5PC8FRC0CfkQdKmd",
+    "webhook-signature": "v1,a2ozGVMIF/MTz+W6hnWZKPQIs2HJiKiiqrQix4xYdTk=",
+    "webhook-test": "true",
+    "webhook-timestamp": "1793126353"
+  },
+  "body": {
+    "apiVersion": "2026-03-30",
+    "createdAt": "2026-03-30T18:00:00.000Z",
+    "data": {
+      "context": {
+        "contacts": { "ids": ["CTsampleContact01234"], "lookupStatus": "matched" },
+        "conversationId": "CNsampleconversation000000000000",
+        "orgId": "ORsampleorg000000000000",
+        "participants": {
+          "external": ["+15555551234"],
+          "resolution": "available",
+          "workspace": ["+15555555678"]
+        },
+        "phoneNumberId": "PNsamplephonenumber000000000000",
+        "phoneNumberType": "shared",
+        "userId": "USsampleus"
+      },
+      "links": {
+        "quo": "https://my.quo.com/inbox/PNsamplephonenumber000000000000/c/CNsampleconversation000000000000?at=ACsampleactivity0000000000000000"
+      },
+      "resource": {
+        "answeredAt": "2026-03-30T18:00:00.000Z",
+        "completedAt": "2026-03-30T18:00:00.000Z",
+        "createdAt": "2026-03-30T18:00:00.000Z",
+        "direction": "incoming",
+        "duration": 42,
+        "hasVoicemail": false,
+        "id": "ACsampleactivity0000000000000000",
+        "status": "answered",
+        "updatedAt": "2026-03-30T18:00:00.000Z"
+      }
+    },
+    "id": "msg_2SampleEventId0000000000000",
+    "type": "call.completed"
+  }
+}

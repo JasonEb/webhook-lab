@@ -1,0 +1,40 @@
+{
+  "note": "Captured 2026-10-27 from a real text sent to the test number (not the /events/test endpoint). Phone numbers and message text redacted per architecture.md section 8; ids/structure left intact. Headers trimmed to verification-relevant ones.",
+  "headers": {
+    "content-type": "application/json",
+    "svix-id": "msg_3LI13KPCrzSeHGjxhnSBetSh0Sl",
+    "svix-signature": "v1,kL0SFWVq1/vQL7oG7UxWFmOL86WP0Kb9C6iZV6bnmOs=",
+    "svix-timestamp": "1793126567",
+    "webhook-id": "msg_3LI13KPCrzSeHGjxhnSBetSh0Sl",
+    "webhook-signature": "v1,kL0SFWVq1/vQL7oG7UxWFmOL86WP0Kb9C6iZV6bnmOs=",
+    "webhook-timestamp": "1793126567"
+  },
+  "body": {
+    "apiVersion": "2026-03-30",
+    "createdAt": "2026-10-27T18:42:47.206Z",
+    "data": {
+      "context": {
+        "contacts": { "ids": [], "lookupStatus": "none" },
+        "conversationId": "CNf226a9fab06f4ccb803b9f37bf8284c8",
+        "orgId": "ORZKCkWwzw",
+        "phoneNumberId": "PNkFolXPa1",
+        "recipientIdentifiers": ["+15550001234"],
+        "senderIdentifier": "+15550005678",
+        "userId": "USSG1pYrpO"
+      },
+      "links": {
+        "quo": "https://my.quo.com/inbox/PNkFolXPa1/c/CNf226a9fab06f4ccb803b9f37bf8284c8?at=ACsampleactivity0000000000000000"
+      },
+      "resource": {
+        "createdAt": "2026-10-27T18:42:46.995Z",
+        "direction": "incoming",
+        "id": "ACsampleactivity0000000000000000",
+        "media": [],
+        "status": "received",
+        "text": "[redacted message body]"
+      }
+    },
+    "id": "6ae0f0a726fdc6e880672756",
+    "type": "message.received"
+  }
+}

@@ -26,7 +26,9 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 |---|---|
 | Subscription | `POST /webhooks` with `events`, `url`, optional `label`, optional `resourceIds` (phone number **IDs** matching `^PN`, not raw numbers; `["*"]` or omitted = all), optional `status` (`enabled`\|`disabled`, default `enabled`). API version is pinned per subscription at creation. Response wraps the object in `data`; the signing secret is returned as `data.key` (a `whsec_...` value). Source: https://www.quo.com/docs/2026-03-30/webhooks/create-a-new-webhook |
 | API version header | `Quo-Api-Version: 2026-03-30` is the header the API reference documents as required. No mention of `x-quo-api-version` in the reference for `POST /webhooks`. |
-| Signing | Standard Webhooks style: `webhook-id`, `webhook-timestamp`, `webhook-signature`. Secret is `whsec_...` base64, compatible with the Svix SDK. |
+| Signing | Standard Webhooks style: `webhook-id`, `webhook-timestamp`, `webhook-signature`. Quo also sends duplicate `svix-id`/`svix-timestamp`/`svix-signature` headers with identical values, and a `webhook-test: true` header on test-triggered deliveries. Secret is `whsec_...` base64, compatible with the Svix SDK. `webhook-timestamp` is **seconds** (10-digit Unix epoch), not milliseconds. Confirmed 2026-10-27 via `fixtures/sample-delivery.json`. |
+| Payload shape (beta) | `{ id, type, apiVersion, createdAt, data: { resource: {...}, context: { conversationId, orgId, phoneNumberId, phoneNumberType, userId, contacts, participants } } }`. Beta uses `data.resource`; legacy uses `data.object` — the two are structurally different, not just renamed. Confirmed 2026-10-27 via `fixtures/sample-delivery.json` (a synthetic test event, so field presence is confirmed but real-event values are not). |
+| Event timestamp (D10) | **Top-level `createdAt` and `data.resource.createdAt` are different things and are not interchangeable.** Top-level `createdAt` is when Quo generated the *webhook event*; `data.resource.createdAt` (or `.completedAt` for a terminal call state) is when the *domain event itself* happened. The D10 stale-event guard must compare on the `data.resource.*` timestamp — using the top-level one would make retries of the same event look like newer events. Confirmed 2026-10-27 via a real (non-test) `message.received` delivery, `fixtures/sample-message-delivery.json` (211ms gap observed between the two timestamps on one message). Not yet confirmed for `call.completed`/`call.summary.completed` — check which `resource` field is populated when those are captured for real. |
 | Raw body | Verification needs the exact raw bytes of the request body. |
 | Test events | `POST /webhooks/:id/events/test` with `{ "eventType": ... }`. |
 | Delivery inspection | List deliveries, get per-delivery detail with per-attempt records (fields include `responseDurationMs`, `triggerType`). |
@@ -42,8 +44,8 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 - Which response codes are retried (5xx only? 4xx? redirects?).
 - Whether repeated failure auto-disables a subscription.
 - Ordering guarantees between events for the same call or conversation.
-- Exact payload shape (`data.object` vs `data.resource` differs between schemes) and whether `webhook-timestamp` is seconds or milliseconds.
-- Whether `webhook-id` is stable across retries of the same event (assumed yes; this is the core dedupe assumption and must be verified first).
+- Which specific `data.resource` field carries the event timestamp for `call.completed`/`call.summary.completed` (the general rule — use `data.resource.*`, not top-level `createdAt` — is confirmed; see Documented table).
+- Whether `webhook-id` is stable across retries of the same event (assumed yes; this is the core dedupe assumption and must be verified first — this is E1, not yet run; captures so far are single non-retried deliveries).
 
 ## 3. System overview
 

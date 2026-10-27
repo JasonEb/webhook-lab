@@ -136,11 +136,14 @@ createServer((req, res) => {
 ## 0.6 Fire a test event and capture it
 
 ```bash
-curl -X POST https://api.quo.com/v1/webhooks/<subscription-id>/events/test \
+curl -X POST https://api.quo.com/webhooks/<subscription-id>/events/test \
   -H "Authorization: Bearer $QUO_API_KEY" \
   -H "Content-Type: application/json" \
+  -H "Quo-Api-Version: 2026-03-30" \
   -d '{"eventType": "message.received"}'
 ```
+
+Confirmed base URL: `https://api.quo.com` (no `/v1` prefix).
 
 - [ ] Fire the test event while `capture-once.ts` is running.
 - [ ] Confirm `data/capture-raw.json` was written and the script exited.
@@ -157,21 +160,22 @@ curl -X POST https://api.quo.com/v1/webhooks/<subscription-id>/events/test \
 
 From `architecture.md` section 2, this phase should resolve:
 
-- [ ] **Payload shape** — `data.object` vs `data.resource`. Record which the beta API actually sent.
-- [ ] **Timestamp unit** — is `webhook-timestamp` seconds or milliseconds? Check the raw header value's magnitude.
+- [x] **Payload shape** — beta uses `data.resource` + `data.context`, confirmed via a real (test) delivery captured 2026-10-27. `architecture.md` section 2 updated.
+- [x] **Timestamp unit** — `webhook-timestamp` is seconds (10-digit epoch), confirmed 2026-10-27.
 - [x] **API version header name** — confirmed `Quo-Api-Version` via the API reference; `architecture.md` section 2 already updated.
-- [ ] **Event timestamp field for D10** — identify which payload field carries the authoritative event time (for the stale-event guard). Record the exact field path.
-- [ ] Edit `architecture.md` section 2 "Unknown" table: move resolved rows into the "Documented" table with the confirmed detail, citing "confirmed in Phase 0 capture, 2026-10-27" or the actual date you run this.
+- [x] **Event timestamp field for D10** — confirmed via a real (non-test) `message.received` delivery 2026-10-27: use `data.resource.*` timestamps, not top-level `createdAt` (they differ — top-level is webhook-generation time). Exact field for `call.completed`/`call.summary.completed` still TBD, general rule is settled. `architecture.md` section 2 updated.
+- [x] Edited `architecture.md` section 2: moved payload shape, timestamp unit, and header name into "Documented"; narrowed the D10 field question and E1 (webhook-id stability) notes in "Unknown."
 
 ## 0.9 Acceptance checklist (must all be true to close Phase 0)
 
-- [ ] Repo exists, is a git repo, builds (`npx tsc --noEmit` passes on the empty scaffold).
-- [ ] `.env` holds real secrets and is confirmed absent from `git status` / history.
-- [ ] A live webhook subscription exists on your personal workspace, pointed at a tunnel URL.
-- [ ] `fixtures/sample-delivery.json` exists, redacted, committed.
-- [ ] `architecture.md` section 2 updated with resolved unknowns and today's date.
-- [ ] You can state, from direct evidence (not assumption): the real header names, the timestamp unit, and the payload shape.
-- [ ] Tunnel URL used for setup is noted as temporary — plan to tear it down when not actively testing (per architecture.md section 8).
+- [x] Repo exists, is a git repo, builds (`tsc --noEmit` and `eslint .` both pass).
+- [x] `.env` holds real secrets (`QUO_API_KEY`, `QUO_WEBHOOK_SECRET`) and is confirmed absent from `git status` / history.
+- [x] A live webhook subscription exists (id `47119`, beta API `2026-03-30`), pointed at a tunnel URL.
+- [x] `fixtures/sample-delivery.json` exists, committed (no redaction needed — Quo's test endpoint sends synthetic placeholder data, not real PII).
+- [x] `architecture.md` section 2 updated with resolved unknowns and today's date (2026-10-27).
+- [x] You can state, from direct evidence: the real header names (`webhook-id`/`webhook-timestamp`/`webhook-signature` + duplicate `svix-*`), the timestamp unit (seconds), and the payload shape (`data.resource` + `data.context`).
+- [ ] Tunnel URL used for setup is noted as temporary — plan to tear it down when not actively testing (per architecture.md section 8). **Still running** (`read-published-abilities-many.trycloudflare.com`) — tear down once Phase 0 wraps.
+- [x] A real (non-test, non-synthetic) event captured and the D10 event-timestamp question resolved (see above). `data/capture-raw.json` (gitignored, contains real phone numbers/text) superseded by the redacted `fixtures/sample-message-delivery.json`.
 
 ---
 
