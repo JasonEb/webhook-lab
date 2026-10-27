@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express";
 import { verifyQuoSignature, SignatureVerificationError } from "./verifyQuoSignature.js";
-import { logArrival, logRejection } from "./arrivalLog.js";
+import { logArrival, logRejection, getArrivalCounters } from "./arrivalLog.js";
 import type { DeliveryStore } from "./db/DeliveryStore.js";
 
 export function createApp(store: DeliveryStore, secret: string) {
@@ -48,6 +48,21 @@ export function createApp(store: DeliveryStore, secret: string) {
       res.status(200).end();
     },
   );
+
+  app.get("/healthz", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  app.get("/debug/deliveries", (_req: Request, res: Response) => {
+    res.status(200).json(store.listRecent(50));
+  });
+
+  app.get("/debug/stats", (_req: Request, res: Response) => {
+    res.status(200).json({
+      deliveries: store.countsByStatus(),
+      arrivals: getArrivalCounters(),
+    });
+  });
 
   return app;
 }
