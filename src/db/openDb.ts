@@ -29,6 +29,17 @@ CREATE TABLE IF NOT EXISTS messages (
   data TEXT NOT NULL,
   event_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS arrivals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  webhook_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  ts_header TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  label TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_arrivals_webhook_id_received ON arrivals(webhook_id, received_at);
 `;
 
 export function openDb(path: string): Database.Database {

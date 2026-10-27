@@ -53,8 +53,8 @@ export function decideFault(mode: FaultMode, priorArrivalCount: number): FaultDe
 }
 ```
 
-- [ ] Create this file. `priorArrivalCount` comes from the `arrivals` table (4.2) — how many times this event's `webhook_id` has already arrived, faulted or not.
-- [ ] **Safety, per `architecture.md` 4.4 ("must never be enabled in a real deployment")**: on server startup, if `parseFaultMode(process.env.FAULT_MODE).type !== "none"`, log a loud, impossible-to-miss warning banner (not just a normal structured log line) to stderr. Don't add a second confirmation env var gate beyond this — `FAULT_MODE` already defaults to `"none"` and requires deliberate action to set, which is the actual safety mechanism; a second flag would be redundant ceremony, not real protection.
+- [x] Create this file. `priorArrivalCount` comes from the `arrivals` table (4.2) — how many times this event's `webhook_id` has already arrived, faulted or not.
+- [x] **Safety, per `architecture.md` 4.4 ("must never be enabled in a real deployment")**: on server startup, if `parseFaultMode(process.env.FAULT_MODE).type !== "none"`, log a loud, impossible-to-miss warning banner (not just a normal structured log line) to stderr. Don't add a second confirmation env var gate beyond this — `FAULT_MODE` already defaults to `"none"` and requires deliberate action to set, which is the actual safety mechanism; a second flag would be redundant ceremony, not real protection.
 
 ## 4.2 Promote `arrivals` to a table (D8), with one deliberate schema addition
 
@@ -93,9 +93,9 @@ export interface ArrivalStore {
 }
 ```
 
-- [ ] Add the table to `src/db/openDb.ts`'s schema.
-- [ ] Implement `src/db/arrivalStore.ts` similarly to the existing stores (prepared statements, shared `db` connection).
-- [ ] Keep `arrivalLog.ts`'s existing console logging (`logArrival`/`logRejection`) as-is — the table is the new queryable record, not a replacement for the live-tailable structured log.
+- [x] Add the table to `src/db/openDb.ts`'s schema.
+- [x] Implement `src/db/arrivalStore.ts` similarly to the existing stores (prepared statements, shared `db` connection).
+- [x] Keep `arrivalLog.ts`'s existing console logging (`logArrival`/`logRejection`) as-is — the table is the new queryable record, not a replacement for the live-tailable structured log.
 
 ## 4.3 Wire the fault injector into `app.ts`
 
@@ -112,16 +112,16 @@ Updated route flow:
 6. If `decision.statusCode !== null`: record an `arrivals` row with `outcome: "faulted"`, respond with `decision.statusCode`, **do not** touch `deliveries` — return.
 7. Otherwise: proceed exactly as Phase 2/3 built it (`store.insertIfNew`, `logArrival`), **plus** record the matching `arrivals` row (`outcome` mirrors the insert result: `accepted`/`duplicate`).
 
-- [ ] Implement the updated route in `src/app.ts`.
-- [ ] Update `src/server.ts` to read `FAULT_MODE` from the environment (default unset/`"none"`), construct the `ArrivalStore`, and pass everything into `createApp`.
-- [ ] Update `src/app.test.ts`'s `setup()` helper for the new `createApp` signature (pass `faultMode: { type: "none" }` and a fresh `arrivalStore` by default, so Phase 2/3's existing 4 tests don't need to change their assertions, only their setup call).
+- [x] Implement the updated route in `src/app.ts`.
+- [x] Update `src/server.ts` to read `FAULT_MODE` from the environment (default unset/`"none"`), construct the `ArrivalStore`, and pass everything into `createApp`.
+- [x] Update `src/app.test.ts`'s `setup()` helper for the new `createApp` signature (pass `faultMode: { type: "none" }` and a fresh `arrivalStore` by default, so Phase 2/3's existing 4 tests don't need to change their assertions, only their setup call).
 
 ## 4.4 Tests for the fault injector
 
-- [ ] `parseFaultMode`: each valid format (`none`, `fail_first:N`, `slow:MS`, `status:CODE:N`, `status:CODE` with default `n=1`), and an invalid string throws.
-- [ ] `decideFault`: `fail_first:3` faults attempts 0/1/2 (statusCode 500), passes attempt 3+ (statusCode null). `status:429:2` faults attempts 0/1 with 429, passes attempt 2+. `slow:100` never faults, always returns `delayMs: 100`. `none` never faults, never delays.
-- [ ] Route-level test: `FAULT_MODE=fail_first:2` via `createApp`'s injected `faultMode` — first two requests for the same `webhook_id` get 500 and an `arrivals` row with `outcome: "faulted"` each, no `deliveries` row; the third gets 200, `accepted`, and exactly one `deliveries` row. Confirms the counting logic end-to-end, not just the pure function.
-- [ ] Route-level test: `FAULT_MODE=slow:50` — response takes at least 50ms (assert via a timer around the request) and still returns 200/`accepted`.
+- [x] `parseFaultMode`: each valid format (`none`, `fail_first:N`, `slow:MS`, `status:CODE:N`, `status:CODE` with default `n=1`), and an invalid string throws.
+- [x] `decideFault`: `fail_first:3` faults attempts 0/1/2 (statusCode 500), passes attempt 3+ (statusCode null). `status:429:2` faults attempts 0/1 with 429, passes attempt 2+. `slow:100` never faults, always returns `delayMs: 100`. `none` never faults, never delays.
+- [x] Route-level test: `FAULT_MODE=fail_first:2` via `createApp`'s injected `faultMode` — first two requests for the same `webhook_id` get 500 and an `arrivals` row with `outcome: "faulted"` each, no `deliveries` row; the third gets 200, `accepted`, and exactly one `deliveries` row. Confirms the counting logic end-to-end, not just the pure function.
+- [x] Route-level test: `FAULT_MODE=slow:50` — response takes at least 50ms (assert via a timer around the request) and still returns 200/`accepted`.
 
 ## 4.5 Analyzer CLI
 
@@ -134,11 +134,11 @@ import { openArrivalStore } from "../src/db/arrivalStore.js";
 // personal use, not a general-purpose argument parser library).
 ```
 
-- [ ] For each distinct `webhook_id` in the filtered result set: print arrival timestamps in order, inter-arrival gaps (ms between consecutive arrivals), and the outcome sequence (e.g. `faulted, faulted, faulted, accepted`).
-- [ ] Aggregate across the filtered set: total attempts, min/max/mean gap, a simple bucketed distribution (e.g. `<1s`, `1-5s`, `5-30s`, `>30s`).
-- [ ] `--label <label>` filters to one experiment run (per 4.2's schema addition).
-- [ ] `--csv <path>` exports the raw filtered rows (not just the aggregates) to CSV, per `implementation_plan.md`'s "export to CSV" task — this is what gets saved into `data/experiments/`.
-- [ ] Add an `npm run analyze -- [args]` script to `package.json`.
+- [x] For each distinct `webhook_id` in the filtered result set: print arrival timestamps in order, inter-arrival gaps (ms between consecutive arrivals), and the outcome sequence (e.g. `faulted, faulted, faulted, accepted`).
+- [x] Aggregate across the filtered set: total attempts, min/max/mean gap, a simple bucketed distribution (e.g. `<1s`, `1-5s`, `5-30s`, `>30s`).
+- [x] `--label <label>` filters to one experiment run (per 4.2's schema addition).
+- [x] `--csv <path>` exports the raw filtered rows (not just the aggregates) to CSV, per `implementation_plan.md`'s "export to CSV" task — this is what gets saved into `data/experiments/`.
+- [x] Add an `npm run analyze -- [args]` script to `package.json`.
 
 ## 4.6 Experiment runbook (live, one at a time)
 
@@ -160,12 +160,12 @@ General pattern for each experiment: set `FAULT_MODE` in `.env`, restart the ser
 
 ## 4.7 Acceptance checklist (must all be true to close Phase 4)
 
-- [ ] `FAULT_MODE` implemented with all three variants (`fail_first`, `slow`, and the `status` extension for E4), defaulting to `none`, with a loud startup warning when active.
-- [ ] `arrivals` table promoted per D8, with the `label` addition flagged in `plan_deviations.md`.
-- [ ] Fault injector sits after verification and arrival logging, confirmed by reading `app.ts` (matches `architecture.md` 4.4 exactly).
-- [ ] Unit tests (4.4) pass, including the route-level end-to-end fault behavior, not just the pure `decideFault` function.
-- [ ] Analyzer CLI works: per-`webhook_id` gaps, aggregates, `--label` filtering, CSV export.
-- [ ] `tsc --noEmit` and `eslint .` both pass clean; all prior tests (26 from Phase 3) still pass.
+- [x] `FAULT_MODE` implemented with all three variants (`fail_first`, `slow`, and the `status` extension for E4), defaulting to `none`, with a loud startup warning when active. Verified live locally, not just in tests.
+- [x] `arrivals` table promoted per D8, with the `label` addition flagged in `plan_deviations.md` (V9).
+- [x] Fault injector sits after verification and arrival logging, confirmed by reading `app.ts` (matches `architecture.md` 4.4 exactly).
+- [x] Unit tests (4.4) pass, including the route-level end-to-end fault behavior, not just the pure `decideFault` function.
+- [x] Analyzer CLI works: per-`webhook_id` gaps, aggregates, `--label` filtering, CSV export. Verified against live local smoke-test data.
+- [x] `tsc --noEmit` and `eslint .` both pass clean; all prior tests pass. 38/38 total (26 from Phase 3 + 12 new).
 - [ ] E2–E7 run live, each with a recorded one-paragraph result and a raw CSV export under `data/experiments/`.
 - [ ] Any result contradicting `architecture.md`'s prior assumptions is flagged in that experiment's write-up.
 - [ ] E8 explicitly deferred, not silently skipped — noted here and in the draft experiment notes for Phase 5 to pick up.

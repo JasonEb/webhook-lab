@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
-import { createApp } from "./app.js";
+import { createApp, type CreateAppOptions } from "./app.js";
 import { openDb } from "./db/openDb.js";
 import { openDeliveryStore } from "./db/sqliteDeliveryStore.js";
+import { openArrivalStore } from "./db/arrivalStore.js";
 import { buildSignedHeaders } from "./testSupport/sign.js";
 
 const TEST_SECRET =
   "whsec_" + Buffer.from("test-secret-for-quo-webhook-lab-phase2").toString("base64");
 
-function setup() {
-  const store = openDeliveryStore(openDb(":memory:"));
-  const app = createApp(store, TEST_SECRET);
-  return { store, app };
+function setup(overrides: Partial<CreateAppOptions> = {}) {
+  const db = openDb(":memory:");
+  const store = openDeliveryStore(db);
+  const arrivalStore = openArrivalStore(db);
+  const app = createApp({ store, arrivalStore, secret: TEST_SECRET, ...overrides });
+  return { store, arrivalStore, app };
 }
 
 describe("POST /webhooks/quo", () => {
@@ -82,5 +85,46 @@ describe("POST /webhooks/quo", () => {
 
     expect(res.status).toBe(400);
     expect(store.countAll()).toBe(0);
+  });
+
+  it("fail_first:2 faults the first two arrivals of an event and accepts the third", async () => {
+    const { store, arrivalStore, app } = setup({ faultMode: { type: "fail_first", n: 2 } });
+    const payload = JSON.stringify({ id: "msg_fault1", type: "call.completed" });
+
+    const send = () =>
+      request(app)
+        .post("/webhooks/quo")
+        .set(buildSignedHeaders(TEST_SECRET, "msg_fault1", payload))
+        .set("Content-Type", "application/json")
+        .send(payload);
+
+    const first = await send();
+    const second = await send();
+    const third = await send();
+
+    expect(first.status).toBe(500);
+    expect(second.status).toBe(500);
+    expect(third.status).toBe(200);
+    expect(store.countAll()).toBe(1);
+
+    const arrivals = arrivalStore.listAll();
+    expect(arrivals.map((a) => a.outcome)).toEqual(["faulted", "faulted", "accepted"]);
+  });
+
+  it("slow:50 delays the response by at least 50ms and still returns 200", async () => {
+    const { app } = setup({ faultMode: { type: "slow", ms: 50 } });
+    const payload = JSON.stringify({ id: "msg_slow1", type: "call.completed" });
+    const headers = buildSignedHeaders(TEST_SECRET, "msg_slow1", payload);
+
+    const start = Date.now();
+    const res = await request(app)
+      .post("/webhooks/quo")
+      .set(headers)
+      .set("Content-Type", "application/json")
+      .send(payload);
+    const elapsed = Date.now() - start;
+
+    expect(res.status).toBe(200);
+    expect(elapsed).toBeGreaterThanOrEqual(50);
   });
 });

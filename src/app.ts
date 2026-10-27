@@ -1,15 +1,32 @@
 import express, { type Request, type Response } from "express";
 import { verifyQuoSignature, SignatureVerificationError } from "./verifyQuoSignature.js";
 import { logArrival, logRejection, getArrivalCounters } from "./arrivalLog.js";
+import { decideFault, type FaultMode } from "./faultInjector.js";
 import type { DeliveryStore } from "./db/DeliveryStore.js";
+import type { ArrivalStore } from "./db/arrivalStore.js";
 
-export function createApp(store: DeliveryStore, secret: string) {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface CreateAppOptions {
+  store: DeliveryStore;
+  arrivalStore: ArrivalStore;
+  secret: string;
+  faultMode?: FaultMode;
+  label?: string;
+}
+
+export function createApp(options: CreateAppOptions) {
+  const { store, arrivalStore, secret } = options;
+  const faultMode: FaultMode = options.faultMode ?? { type: "none" };
+  const label = options.label ?? null;
   const app = express();
 
   app.post(
     "/webhooks/quo",
     express.raw({ type: "application/json" }),
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const rawBody = req.body as Buffer;
 
       try {
@@ -32,18 +49,46 @@ export function createApp(store: DeliveryStore, secret: string) {
         return;
       }
 
+      const receivedAt = new Date().toISOString();
+      const tsHeader = (req.headers["webhook-timestamp"] as string | undefined) ?? "";
+      const priorCount = arrivalStore.countForWebhookId(parsed.id);
+      const decision = decideFault(faultMode, priorCount);
+
+      if (decision.delayMs > 0) {
+        await sleep(decision.delayMs);
+      }
+
+      if (decision.statusCode !== null) {
+        arrivalStore.record({
+          webhookId: parsed.id,
+          eventType: parsed.type,
+          receivedAt,
+          tsHeader,
+          outcome: "faulted",
+          label,
+        });
+        logArrival({ webhookId: parsed.id, eventType: parsed.type, outcome: "faulted" });
+        res.status(decision.statusCode).end();
+        return;
+      }
+
       const result = store.insertIfNew({
         webhookId: parsed.id,
         eventType: parsed.type,
         payload: rawBody.toString("utf8"),
-        receivedAt: new Date().toISOString(),
+        receivedAt,
       });
 
-      logArrival({
+      const outcome = result === "inserted" ? "accepted" : "duplicate";
+      arrivalStore.record({
         webhookId: parsed.id,
         eventType: parsed.type,
-        outcome: result === "inserted" ? "accepted" : "duplicate",
+        receivedAt,
+        tsHeader,
+        outcome,
+        label,
       });
+      logArrival({ webhookId: parsed.id, eventType: parsed.type, outcome });
 
       res.status(200).end();
     },
