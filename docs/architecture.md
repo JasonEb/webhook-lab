@@ -30,9 +30,12 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 | Payload shape (beta) | `{ id, type, apiVersion, createdAt, data: { resource: {...}, context: { conversationId, orgId, phoneNumberId, phoneNumberType, userId, contacts, participants } } }`. Beta uses `data.resource`; legacy uses `data.object` — the two are structurally different, not just renamed. Confirmed 2026-10-27 via `fixtures/sample-delivery.json` (a synthetic test event, so field presence is confirmed but real-event values are not). |
 | Event timestamp (D10) | **Top-level `createdAt` and `data.resource.createdAt` are different things and are not interchangeable.** Top-level `createdAt` is when Quo generated the *webhook event*; `data.resource.createdAt` (or `.completedAt` for a terminal call state) is when the *domain event itself* happened. The D10 stale-event guard must compare on the `data.resource.*` timestamp — using the top-level one would make retries of the same event look like newer events. Confirmed 2026-10-27 via a real (non-test) `message.received` delivery, `fixtures/sample-message-delivery.json` (211ms gap observed between the two timestamps on one message). Not yet confirmed for `call.completed`/`call.summary.completed` — check which `resource` field is populated when those are captured for real. |
 | Raw body | Verification needs the exact raw bytes of the request body. |
-| Test events | `POST /webhooks/:id/events/test` with `{ "eventType": ... }`. |
-| Delivery inspection | List deliveries, get per-delivery detail with per-attempt records (fields include `responseDurationMs`, `triggerType`). |
-| Manual retry | `POST /webhooks/:id/events/:eventId/retry`. |
+| Test events | `POST /webhooks/:id/events/test` with `{ "eventType": ... }`. Test deliveries always get `eventId: null` and a fixed canned payload (same `id`/resource values every time) — not useful for E1-style experiments that need a real event. |
+| Update a webhook | `PATCH /webhooks/{webhookId}`, partial update, any of `url`/`events`/`resourceIds`/`status`/`label`. Confirmed working 2026-10-27 (used to repoint a subscription at a new tunnel URL without recreating it). Source: https://www.quo.com/docs/2026-03-30/webhooks/update-a-webhook-by-id.md |
+| Delivery inspection | `GET /webhooks/{webhookId}/events`. Confirmed fields (2026-10-27, superseding the earlier third-party-sourced guess of `responseDurationMs`/`triggerType`, which do not appear): `id` (delivery id, equals the `webhook-id`/`svix-id` HTTP header — confirmed by direct comparison), `eventId` (the payload body's own top-level `id` field; `null` for test deliveries and deliveries before 2026-09-01), `resourceId`, `eventType`, `status` (`success`\|`pending`\|`sending`\|`failed`), `nextAttemptAt`, `createdAt`. Source: https://www.quo.com/docs/2026-03-30/webhook-events/list-deliveries-for-a-webhook.md |
+| Delivery `id` vs payload `id` (`eventId`) | **These are two different identifiers and must not be conflated.** The delivery's `id` (= `webhook-id` header) identifies the dispatch; the payload body's own `id` field (called `eventId` in the delivery-list API) identifies the underlying business event. They happened to be equal in no capture so far — they're independent values. See the E1 row below for which one is actually stable across retries (both, as it turns out, but for a manual retry specifically). |
+| Manual retry | `POST /webhooks/{webhookId}/events/{deliveryId}/retry`, where `deliveryId` is the delivery's `id` (not the payload `eventId`). Returns `202 Accepted`, runs asynchronously. Source: https://www.quo.com/docs/2026-03-30/webhook-events/retry-a-webhook-delivery.md |
+| E1: webhook-id stability across retries | **Confirmed stable**, 2026-10-27. Triggered a manual retry of a real `message.received` delivery and compared both identifiers before/after: the delivery's `id` (`webhook-id`/`svix-id` header) and the payload's `id` (`eventId`) were both identical across the retry — Quo re-dispatches the same delivery rather than creating a new one, confirmed via the `webhook-id` header on the actual re-received HTTP request (not just the delivery-list API). D2's dedupe-on-payload-`id` approach is confirmed correct, and would also have worked keyed on the header. **Caveat:** this tested a *manual* retry only (via the retry API). Automatic retries (after our server fails/times out) are expected to behave the same way but haven't been directly observed yet — will be re-confirmed naturally during Phase 4's fault-injection experiments (E2). |
 | Secret rotation | `POST /webhooks/:id/rotate` returns a new `whsec_` key. |
 | Events | message.*, call.*, contact.*, task.*, integration.* (see API reference for the full list). |
 | Migration | Legacy and beta signature schemes are not interchangeable. Quo's migration guide says to dedupe beta retries. |
@@ -45,7 +48,6 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 - Whether repeated failure auto-disables a subscription.
 - Ordering guarantees between events for the same call or conversation.
 - Which specific `data.resource` field carries the event timestamp for `call.completed`/`call.summary.completed` (the general rule — use `data.resource.*`, not top-level `createdAt` — is confirmed; see Documented table).
-- Whether `webhook-id` is stable across retries of the same event (assumed yes; this is the core dedupe assumption and must be verified first — this is E1, not yet run; captures so far are single non-retried deliveries).
 
 ## 3. System overview
 
@@ -96,10 +98,10 @@ Three independent paths share one database:
 ## 4. Components
 
 ### 4.1 Ingest (Express route)
-- Mounts `express.raw({ type: 'application/json' })` on the webhook route only, before any JSON parser, so the handler receives the raw `Buffer` unchanged. No other middleware may touch the body. Parsing happens only after verification.
-- Verifies with the Svix `Webhook` class using the three headers and the raw body. Rejects with **401** on missing headers, bad signature or stale timestamp.
-- Records every verified arrival with an outcome (`accepted`, `duplicate`, `faulted`). Initially this is one structured log line per arrival (webhook id, event type, timestamp, outcome); the `arrivals` table is deferred (D8).
-- Inserts into `deliveries` keyed by `webhook-id` using `ON CONFLICT DO NOTHING`. A duplicate returns **200**, because from Quo's perspective the event was received.
+- Mounts `express.raw({ type: 'application/json' })` on the webhook route only, before any JSON parser, so the handler receives the raw `Buffer` unchanged. No other middleware may touch the body. Parsing happens only after verification. Implemented in `src/app.ts` (Phase 2).
+- Verifies with the Svix `Webhook` class using the three headers and the raw body. Rejects with **401** on missing headers, bad signature or stale timestamp. A signature failure is logged separately (not via the `arrival` log — see next bullet), since the body isn't parsed yet and `event_type` isn't known at that point.
+- Records every verified arrival with an outcome (`accepted`, `duplicate`, `faulted`). Initially this is one structured log line per arrival (webhook id, event type, timestamp, outcome); the `arrivals` table is deferred (D8). `faulted` is reserved for the Phase 4 fault injector; a signature failure or a malformed-JSON parse failure are logged via a separate rejection line instead of stretching this enum to a value the docs don't define.
+- Inserts into `deliveries` keyed by the payload body's own `id` field (**not** the `webhook-id` HTTP header — they're different identifiers, see section 2) using `ON CONFLICT DO NOTHING`. A duplicate returns **200**, because from Quo's perspective the event was received. Confirmed stable across retries via E1.
 - Does no business logic. Anything slow or fallible belongs to the worker.
 
 ### 4.2 Worker
@@ -149,7 +151,7 @@ Each row shows the recommendation next to the final decision. **The final decisi
 | # | Decision | Recommended | Final decision | Status | Rationale and trade-off |
 |---|---|---|---|---|---|
 | D1 | When to respond to Quo | Acknowledge fast, process in the background | Same (A). Verify, save, return 200, and let a worker do the real work. | Final | Keeps response time far under any delivery timeout, so slow handlers do not trigger retries. Needs a durable queue (the outbox in D3). |
-| D2 | Dedupe key | Unique key on `webhook-id` | Use `webhook-id` as the working assumption. If E1 shows the id changes between retries, fall back to a hybrid with a payload-derived safety key. | Pending E1 | Simple and atomic. Depends on id stability across retries. A payload-derived key works without that, but can wrongly merge events that legitimately repeat. |
+| D2 | Dedupe key | Unique key on `webhook-id` | **Dedupe on the payload body's top-level `id` field** (what Quo's delivery-list API calls `eventId`), not the `webhook-id` HTTP header — they are two different identifiers (see architecture.md section 2). Confirmed stable across a manual retry via E1; both identifiers were in fact stable in that test, so either would have worked, but the payload field is used since it's what the handler already has in hand after parsing, with no header-lookup indirection. Implemented in `src/app.ts`/`src/db/sqliteDeliveryStore.ts` (Phase 2). | **Final, E1 confirmed** | Simple and atomic (`INSERT ... ON CONFLICT DO NOTHING`, `deliveries.webhook_id` column — the column name predates this finding and refers to the payload id, not the header; worth a rename if it causes confusion later). E1 confirmed stability for a manual retry; automatic-retry stability will be re-confirmed in Phase 4 (E2) rather than assumed. |
 | D3 | Outbox storage | SQLite | Same. SQLite, with storage code behind a small interface so a Postgres swap stays contained. | Final | Zero infrastructure, transactional, inspectable with `sqlite3`. Single node only; production would use Postgres or a queue. |
 | D4 | Signature check order | Verify raw bytes before parsing | Same. | Final | Required by the signature scheme and blocks tampering. Any middleware that touches the body first breaks every valid request. |
 | D5 | Response to a bad signature | 401 | Same. Return 401, do no work, store nothing. | Pending E5 | Honest signal that surfaces a misconfigured secret. Whether Quo retries a 401 is unknown and is measured in E5. |
@@ -160,7 +162,8 @@ Each row shows the recommendation next to the final decision. **The final decisi
 | D10 | Stale-event guard on upserts | Add the guard | Same (A). A write lands only if the incoming `event_at` is newer than or equal to the stored one. | Final, confirm timestamp field | Handles out-of-order delivery and late retries. Needs a trustworthy event timestamp, which the first real payload capture must confirm. |
 
 ### Follow-ups from these decisions
-- Run E1 early to confirm whether `webhook-id` is stable across retries (D2), and check the event timestamp field in the first real payload (D10).
+- ~~Run E1 early to confirm whether `webhook-id` is stable across retries (D2)~~ — done, confirmed stable (Phase 2, 2026-10-27). Check the event timestamp field in the first real payload (D10) — done for `message.received`, still open for `call.completed`/`call.summary.completed`.
+- Consider renaming the `deliveries.webhook_id` column to something like `event_id` to avoid confusion with the actual `webhook-id` HTTP header, which is a different value (see section 2).
 - Measure how Quo reacts to a 401 (D5, E5).
 - Promote the structured arrival log to an `arrivals` table when the experiments need it (D8).
 - Write a small hand-rolled signature check as a learning exercise (D6).
@@ -180,6 +183,7 @@ Each row shows the recommendation next to the final decision. **The final decisi
 | Poison event | Reaches `dead` after `maxAttempts`; stays queryable; does not block the queue |
 | Crash mid-processing | Lease expires; row is reclaimed; handler idempotency makes re-execution safe |
 | Forged or tampered body | Signature check fails, 401, nothing stored |
+| Validly signed but malformed JSON | Signature passes (it only covers raw bytes, not JSON validity), parsing fails, 400, nothing stored. Rejection logged separately from the `arrival` log, not as a fourth outcome value (see 4.1). Implemented and tested in Phase 2. |
 | Replayed capture | Timestamp tolerance rejects it; dedupe blocks in-window replays |
 | Secret rotation | Verification fails after rotation until config is updated; test in E5 and document the procedure |
 | Clock skew | Timestamp tolerance rejects valid requests if our clock drifts; run NTP, log rejections |

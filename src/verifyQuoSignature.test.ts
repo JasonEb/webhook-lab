@@ -3,21 +3,10 @@ import { Webhook } from "svix";
 import { describe, expect, it } from "vitest";
 import "dotenv/config";
 import { SignatureVerificationError, verifyQuoSignature } from "./verifyQuoSignature.js";
+import { signPayload, buildHeaders } from "./testSupport/sign.js";
 
 const TEST_SECRET =
   "whsec_" + Buffer.from("test-secret-for-quo-webhook-lab-phase1").toString("base64");
-
-function signPayload(secret: string, msgId: string, timestamp: Date, payload: string): string {
-  return new Webhook(secret).sign(msgId, timestamp, payload);
-}
-
-function buildHeaders(msgId: string, timestamp: Date, signature: string) {
-  return {
-    "webhook-id": msgId,
-    "webhook-timestamp": String(Math.floor(timestamp.getTime() / 1000)),
-    "webhook-signature": signature,
-  };
-}
 
 describe("verifyQuoSignature", () => {
   it("accepts a validly signed request", () => {
