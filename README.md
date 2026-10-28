@@ -1,16 +1,14 @@
 # Quo Webhook Lab
 
-A production-shaped webhook receiver for Quo's beta webhooks, plus tooling to empirically measure how Quo's webhook delivery actually behaves — retry schedule, timeout, which status codes get retried, secret rotation recovery, and more.
+A production-shaped webhook receiver for Quo's webhooks, plus tooling to empirically measure how Quo's webhook delivery behaves — retry schedule, timeout, which status codes get retried, secret rotation recovery, and more.
 
-Quo's documentation doesn't publish this behavior anywhere. Rather than assume or guess, this project built a small, correct receiver (ack-fast/process-later, idempotent handlers, dedupe, lease-based retry) and used it to measure the real thing against a live beta subscription. Full results are in [`FINDINGS.md`](FINDINGS.md).
-
-**Status:** built and measured against the beta API, version `2026-03-30`, in late October 2026. This is a point-in-time measurement of a beta API — Quo can and likely will change this behavior. Don't treat anything here as a guarantee.
+**Status:** built and measured against the beta API, version `2026-03-30`, in late October 2026. This is a point-in-time measurement of a beta API — Quo can and likely will change this behavior.
 
 ## Who this is for
 
 - **Developers integrating with Quo's webhooks**, especially the beta API. The dashboard's "Create a webhook" form creates **legacy**-format webhooks, not beta ones — there's no visible UI for the beta API at all right now, only direct API calls (`architecture.md` section 2). If you're building a receiver for Quo, the working, tested reference code here (signature verification, raw-body handling, dedupe, idempotent handlers) and the measured retry/timeout/status-code behavior in `FINDINGS.md` answer questions Quo's own docs don't.
-- **Anyone evaluating whether to build on Quo's beta webhooks at all.** `FINDINGS.md` gives real operational characteristics — delivery timeout bounds, how many retries to expect and over what timeframe, whether a 4xx error gets retried the same as a 5xx (it does, which is a real design consideration for how you handle validation errors), whether a failing subscription gets disabled — that matter for a go/no-go or design decision before committing engineering effort.
-- **Quo's own engineering or platform team**, if this ever reaches them — it's an external, empirical read on how webhook delivery actually behaves versus how it might be intended to behave. The 4xx-retried-like-5xx finding in particular is the kind of thing worth a second look from the people who built the retry logic.
+- **Anyone evaluating whether to build on Quo's beta webhooks.** `FINDINGS.md` gives real operational characteristics — delivery timeout bounds, how many retries to expect and over what timeframe, whether a 4xx error gets retried the same as a 5xx (it does, which is a real design consideration for how you handle validation errors), whether a failing subscription gets disabled — that matter for a go/no-go or design decision before committing engineering effort.
+- **Internal Engineers**, if this ever reaches them — it's an external, empirical read on how webhook delivery actually behaves versus how it might be intended to behave. The 4xx-retried-like-5xx finding in particular is the kind of thing worth a second look from the people who built the retry logic.
 - **Anyone building a webhook *receiver* for a different provider entirely.** The architecture — acknowledge fast and process in a background worker, dedupe on the payload's own event id, lease-based retry with exponential backoff, idempotent upserts with a stale-event guard, fault injection for testing retry behavior safely — isn't Quo-specific. It's a reusable pattern for consuming any at-least-once webhook delivery system.
 
 ## Architecture
