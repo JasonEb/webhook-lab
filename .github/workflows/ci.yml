@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+        # No QUO_API_KEY / QUO_WEBHOOK_SECRET configured here on purpose — the suite makes
+        # no live API calls, and the handful of real-fixture checks skip gracefully
+        # (it.skipIf) when no secret is present. Never add real credentials to CI for this
+        # project.

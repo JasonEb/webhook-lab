@@ -5,7 +5,7 @@ Companion to `architecture.md`. Last updated 2026-10-27, updated for decisions D
 ## 0. Plan
 **Suggested project name:** Quo Webhook Lab
 
-**Knowledge files to upload:** `architecture.md`, this file, `phase_0_implementation_plan.md` through `phase_4_implementation_plan.md` and their matching `phase_N_summary.md` files, `bug_log.md`, `plan_deviations.md`, and later the findings doc and any code you want reviewed.
+**Knowledge files to upload:** `architecture.md`, this file, `phase_0_implementation_plan.md` through `phase_5_implementation_plan.md` and their matching `phase_N_summary.md` files, `bug_log.md`, `plan_deviations.md`, `FINDINGS.md`, `README.md`, and any code you want reviewed.
 
 **Suggested project instructions (paste into the project):**
 > I am building the Quo Webhook Lab described in the knowledge files, in Node/TypeScript. Treat `architecture.md` as the source of truth for design and this plan for sequencing. The decisions in architecture section 6 (D1 to D10) are settled; reopen one only when an experiment contradicts it. Work one phase at a time. Before writing code for a phase, restate the acceptance criteria. Keep the documented-versus-unknown distinction for Quo behavior: never state an unknown as fact, and flag when a result contradicts the docs. Prefer small, testable steps and tests first. I want to understand each piece, so explain trade-offs briefly and ask me questions where I should make the call. Remind me to redact personal data in anything I paste.
@@ -75,7 +75,7 @@ Keep a running `decisions.md` in the project and update it when a result changes
 
 **Acceptance:** met. Also caught 3 real bugs along the way (`bug_log.md` P1–P3) — notably `call.summary.completed`'s timestamp field, which a real call proved wrong before the phase could close. Full detail in `phase_3_implementation_plan.md` and `phase_3_summary.md`.
 
-### Phase 4: Fault injection and the retry experiments (4 to 6 h) — ✅ Done (except E8, deferred)
+### Phase 4: Fault injection and the retry experiments (4 to 6 h) — ✅ Done (E8 completed in Phase 5, see below)
 **Tasks**
 - [x] Implement `FAULT_MODE` (`fail_first:N`, `slow:MS`, **plus a `status:CODE:N` variant** — needed for E4, not in the original scope; see `plan_deviations.md` V8).
 - [x] Promote the arrival log lines to an `arrivals` table (D8). **Plus a `label` column** beyond `architecture.md` section 5's documented schema (`plan_deviations.md` V9).
@@ -91,19 +91,19 @@ Keep a running `decisions.md` in the project and update it when a result changes
 | E5 | What happens with a bad signature or after secret rotation? | Wrong secret, then rotate via the API | **Done.** 401 retries once (~5.2s, same timing as E4). Rotation + config update restores processing immediately, no propagation delay. |
 | E6 | Does repeated failure disable the subscription? | Keep failing across several events | **Done, bounded result.** No status change observed across 3 events / ~90s. Not a claim it never happens — long-duration test not run. |
 | E7 | Are events ordered? | Real call producing `call.completed` + `call.summary.completed` | **Done, single trial.** Order held on every axis. Caveat: tests a causally-dependent pair, not independent/concurrent events. |
-| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | **Deferred to after Phase 5** — needs the reconciler, which doesn't exist yet. |
+| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | **Done, Phase 5.** A short outage (~5.7 min) self-healed via Quo's own automatic retry before reconciliation was needed; reconciler dry-run correctly found 0 candidates. The "reconciler actually fills a gap" path is validated at the unit level (`src/reconciler.test.ts`) rather than live — a long-enough outage to force a genuine `failed` status wasn't run (per E2, could be 40+ min with no confirmed ceiling). |
 
 **Acceptance:** met for E1–E7. Full write-ups and raw CSVs in `data/experiments/README.md`; detailed execution record in `phase_4_implementation_plan.md`.
 
-### Phase 5: Reconciler and write-up (3 to 4 h)
+### Phase 5: Reconciler and write-up (3 to 4 h) — ✅ Done
 **Tasks**
-- [ ] Quo API client (list deliveries paged, get detail, retry, test event). The version header question is already settled (`Quo-Api-Version` only, confirmed Phase 0) — no need to send both spellings.
-- [ ] Reconciler: dry-run by default, `--apply` to retry; pacing; tests with a mocked client.
-- [ ] README: what it is, architecture diagram, quick start, how to run each experiment safely.
-- [ ] `FINDINGS.md`: measured retry behavior with tables and caveats (beta API, date measured, API version `2026-03-30`).
-- [ ] Clean repo hygiene: no secrets or personal data in history, MIT license, CI running typecheck and tests.
+- [x] Quo API client (list deliveries paged, get detail, retry, test event). Paging confirmed real (`limit`/`after`/`nextCursor`); a single-delivery-detail endpoint was also found and added, beyond what this task originally named (`plan_deviations.md` V11).
+- [x] Reconciler: dry-run by default, `--apply` to retry; pacing; tests with a mocked client.
+- [x] README: what it is, architecture diagram, quick start, how to run each experiment safely.
+- [x] `FINDINGS.md`: measured retry behavior with tables and caveats (beta API, date measured, API version `2026-03-30`).
+- [x] Clean repo hygiene: full git history audited (clean), MIT license added, CI configured (not yet confirmed green on GitHub Actions — nothing pushed yet).
 
-**Acceptance:** a stranger can clone, run tests and reproduce at least E1 and E2 from the README.
+**Acceptance:** met. Full detail in `phase_5_implementation_plan.md` and `phase_5_summary.md`.
 
 ### Phase 6 (optional): Temporal variant and outreach (4 to 6 h)
 **Tasks**
@@ -138,8 +138,8 @@ Keep a running `decisions.md` in the project and update it when a result changes
 6. ~~Does this build cover the webhook lab only, or also an inbound image pipeline?~~ — resolved: webhook lab only. No image-pipeline work exists anywhere in the project.
 
 ## 6. Definition of done
-- [ ] Tests pass locally and in CI.
-- [ ] E1 to E4 and E8 completed with raw data; E5 to E7 completed or explicitly skipped with reasons.
-- [ ] `FINDINGS.md` published with dates and caveats.
-- [ ] README lets a stranger reproduce E1 and E2.
-- [ ] No secrets or personal data in the repository history.
+- [x] Tests pass locally. **CI configured but not yet confirmed green on GitHub Actions** — nothing's been pushed since it was added.
+- [x] E1 to E4 and E8 completed with raw data; E5 to E7 completed or explicitly skipped with reasons. **All eight (E1–E8) completed with raw data, exceeding the minimum bar.**
+- [x] `FINDINGS.md` published with dates and caveats.
+- [x] README lets a stranger reproduce E1 and E2.
+- [x] No secrets or personal data in the repository history. Full history audit done Phase 5 — clean.

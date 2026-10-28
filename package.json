@@ -11,11 +11,12 @@
     "lint": "eslint .",
     "test": "vitest run",
     "dev": "tsx watch src/server.ts",
-    "analyze": "tsx scripts/analyze.ts"
+    "analyze": "tsx scripts/analyze.ts",
+    "reconcile": "tsx scripts/reconcile.ts"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "better-sqlite3": "^13.0.3",
