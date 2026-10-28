@@ -25,12 +25,13 @@ Not included here: unresolved *unknowns* from `architecture.md` section 2 that g
 | # | Phase | Flaw | Root cause | Found via | Fix |
 |---|---|---|---|---|---|
 | D1 | 1 | "Verify the real captured Phase 0 delivery" test failed hours after being written | The test replayed a fixture's signature verbatim via `verifyQuoSignature()`, which correctly enforces a 5-minute timestamp tolerance. Any captured fixture ages out of a literal replay — this is correct product behavior, not a bug in `verifyQuoSignature`. | `vitest run` failure (`Message timestamp too old`). | Split into two tests: cryptographic authenticity via `sign()` directly (bypasses wall-clock), and an explicit test that `verifyQuoSignature` *correctly* rejects the aged fixture as stale. |
+| D2 | 4 | The cryptographic-authenticity half of D1's fix broke permanently | That test recomputes a fixture's expected signature using whatever secret is in `.env` *right now* and compares it to the fixture's stored signature — implicitly assuming the configured secret never changes. Phase 4's E5 experiment deliberately rotated the real webhook secret (`POST /webhooks/47119/rotate`) as part of testing the recovery procedure, and `.env` now holds the new secret permanently. | `vitest run` failure (`expected [...] to include '...'`) during Phase 4's final full-suite check — correctly caught by running the whole suite again after live experiments, not assumed clean. | Retired (not deleted) via `it.skip` with an explanatory comment in `src/verifyQuoSignature.test.ts`, cross-referencing E5. The fixture's authenticity was already established once against the original secret; re-verifying it forever against a secret that has since rotated isn't meaningful. The staleness-rejection test (D1's other half) is unaffected, since timestamp tolerance is checked before signature comparison. |
 
 ## Running totals
 
 - **Product bugs:** 3 (all Phase 3, all caught before reaching a committed/shipped state)
 - **Tooling/environment issues:** 3 (all Phase 0–1, all one-time scaffold friction)
-- **Test-design flaws:** 1 (Phase 1)
+- **Test-design flaws:** 2 (Phase 1, Phase 4 — both are the same underlying fixture-permanence lesson, surfacing twice in different forms)
 
 ---
 

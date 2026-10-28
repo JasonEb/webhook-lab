@@ -3,3 +3,4 @@ data/
 .env
 *.log
 dist/
+docs/career_notes.md

@@ -75,25 +75,25 @@ Keep a running `decisions.md` in the project and update it when a result changes
 
 **Acceptance:** met. Also caught 3 real bugs along the way (`bug_log.md` P1–P3) — notably `call.summary.completed`'s timestamp field, which a real call proved wrong before the phase could close. Full detail in `phase_3_implementation_plan.md` and `phase_3_summary.md`.
 
-### Phase 4: Fault injection and the retry experiments (4 to 6 h)
+### Phase 4: Fault injection and the retry experiments (4 to 6 h) — ✅ Done (except E8, deferred)
 **Tasks**
-- [ ] Implement `FAULT_MODE` (`fail_first:N`, `slow:MS`, **plus a `status:CODE:N` variant** — needed for E4, not in the original scope; see `phase_4_implementation_plan.md` 4.0).
-- [ ] Promote the arrival log lines to an `arrivals` table if the analysis needs queryable data (D8). **Plus a `label` column beyond the schema in `architecture.md` section 5**, so the analyzer can aggregate per experiment as section 4.6 calls for — flagged in `plan_deviations.md` once built.
-- [ ] Analyzer CLI: per-delivery arrival times, gaps, attempt counts, aggregate tables, export to CSV.
-- [ ] Run the experiments below, one at a time, with fresh test events. Save raw `arrivals` exports into `data/experiments/`.
+- [x] Implement `FAULT_MODE` (`fail_first:N`, `slow:MS`, **plus a `status:CODE:N` variant** — needed for E4, not in the original scope; see `plan_deviations.md` V8).
+- [x] Promote the arrival log lines to an `arrivals` table (D8). **Plus a `label` column** beyond `architecture.md` section 5's documented schema (`plan_deviations.md` V9).
+- [x] Analyzer CLI: per-delivery arrival times, gaps, attempt counts, aggregate tables, export to CSV (`scripts/analyze.ts`).
+- [x] Ran E2 through E7 live, one at a time, each with a fresh real event (test events proved unusable — see E2 below). Raw exports in `data/experiments/`.
 
 | ID | Question | Method | Record |
 |---|---|---|---|
 | E1 | Is `webhook-id` stable across retries? | Manual retry of a delivered event | ids of both attempts — **done, Phase 2: confirmed stable, see D2 above** |
-| E2 | What is the automatic retry schedule and attempt limit? | `fail_first:100` (always 500) | arrival gaps until Quo stops; total attempts |
-| E3 | What is the delivery timeout? | `slow:MS` for several values (for example 2s, 5s, 10s, 30s) | whether Quo retries; **our own arrival timestamps only — Quo's delivery-detail API has no response-duration field, that assumption was already disproven in Phase 2 (`plan_deviations.md` V3)** |
-| E4 | Which status codes are retried? | Respond 400, 401, 404, 410, 429, 500, 503, and a 3xx in turn | retry or no retry per code — **needs the `status:CODE:N` `FAULT_MODE` extension, not buildable with the originally-scoped `fail_first`/`slow` alone** |
-| E5 | What happens with a bad signature or after secret rotation? | Wrong secret in config; then rotate via the API | retries or not; recovery procedure |
-| E6 | Does repeated failure disable the subscription? | Keep failing across several events | subscription `status` over time |
-| E7 | Are events ordered? | Trigger a call that produces several events quickly | arrival order versus event timestamps |
-| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | events recovered, duplicates absorbed — **deferred out of Phase 4, needs the reconciler (a Phase 5 deliverable, below); run after Phase 5** |
+| E2 | What is the automatic retry schedule and attempt limit? | `fail_first:100` (always 500) | **Done.** 4 attempts observed over ~39 min, growing (not clean-doubling) gaps: 4.2s, 5m37s, 32m54s. Ceiling not confirmed (observation stopped by scope decision). **Side finding: test-triggered events get zero retries, ever** — real events required for every subsequent experiment. |
+| E3 | What is the delivery timeout? | `slow:MS` for several values (2s, 5s, 10s, 30s) | **Done.** No retry at 2s/5s/10s; retry at 30s. Timeout bounded to (10s, 30s]. |
+| E4 | Which status codes are retried? | `status:CODE:N`, **trimmed to 400/429/500/503** (4 of the original 8 — `plan_deviations.md` V10) | **Done.** All 4 retried, consistent ~5.1–5.2s regardless of code. **4xx retried identically to 5xx** — contradicts common webhook-provider convention. |
+| E5 | What happens with a bad signature or after secret rotation? | Wrong secret, then rotate via the API | **Done.** 401 retries once (~5.2s, same timing as E4). Rotation + config update restores processing immediately, no propagation delay. |
+| E6 | Does repeated failure disable the subscription? | Keep failing across several events | **Done, bounded result.** No status change observed across 3 events / ~90s. Not a claim it never happens — long-duration test not run. |
+| E7 | Are events ordered? | Real call producing `call.completed` + `call.summary.completed` | **Done, single trial.** Order held on every axis. Caveat: tests a causally-dependent pair, not independent/concurrent events. |
+| E8 | Does reconciliation recover an outage? | Stop the receiver, generate events, restart, run reconciler | **Deferred to after Phase 5** — needs the reconciler, which doesn't exist yet. |
 
-**Acceptance:** each experiment has a one-paragraph result and raw data. Where results contradict the docs, flag them clearly. Full detail in `phase_4_implementation_plan.md` (plan written, not yet executed).
+**Acceptance:** met for E1–E7. Full write-ups and raw CSVs in `data/experiments/README.md`; detailed execution record in `phase_4_implementation_plan.md`.
 
 ### Phase 5: Reconciler and write-up (3 to 4 h)
 **Tasks**
@@ -109,7 +109,7 @@ Keep a running `decisions.md` in the project and update it when a result changes
 **Tasks**
 - [ ] Temporal dev server locally; workflow per delivery with `webhook-id` as workflow id; activity with a retry policy.
 - [ ] Comparison write-up: lines of code, behavior under E2/E3-style failures, operational trade-offs.
-- [ ] Decide how to share (see section 5).
+- [ ] Decide how to share.
 
 ## 3. Test strategy
 - **Unit:** verification, backoff math, upsert guards.
@@ -129,20 +129,7 @@ Keep a running `decisions.md` in the project and update it when a result changes
 | Scope creep into a full product | High | Phase gates; the optional phase only after write-up |
 | Experiments cost real credits (messages) | Low to medium | Prefer call and test events; check pricing before message-sending tests |
 
-## 5. Sharing it responsibly
-- Publish the repo and findings on your own GitHub; this is your work on a public, documented API.
-- If you want Quo's team to see it, a short note to the recruiter or hiring manager with the repo link and a three-line summary of findings is enough. Avoid posting it as a PR or issue on their repos unless they invite it.
-- Be accurate about status: findings come from the beta API at a point in time. Do not present measured behavior as a guarantee.
-- Do not publish anything that implies insider knowledge or includes private workspace data.
-
-## 6. Interview talking points this produces
-- Why ack-then-process, and what at-least-once delivery forces on handler design.
-- Dedupe keys: where they come from, what happens if they are unstable.
-- Evidence-based reliability work: you measured retry behavior instead of guessing.
-- Trade-offs: SQLite outbox versus Postgres or a broker versus Temporal.
-- Failure-mode thinking: out-of-order events, poison messages, crash recovery, secret rotation.
-
-## 7. Open questions to resolve early
+## 5. Open questions to resolve early
 1. ~~Does your Quo plan include API and webhook access, and what are the limits?~~ — resolved: yes, full access used extensively through Phase 3. No limits hit yet.
 2. Does Quo document the retry policy anywhere not yet found (support site, changelog)? — still open; Phase 4's E2 measures it empirically regardless, per the plan's "measure before assuming" principle.
 3. ~~Which event types do you want as the main demo?~~ — resolved: all three (`call.completed`, `call.summary.completed`, `message.received`) — the subscription (Phase 0) and handlers (Phase 3) cover all of them, not just one family.
@@ -150,7 +137,7 @@ Keep a running `decisions.md` in the project and update it when a result changes
 5. Optional: which web framework does Quo's team use? (D7 is settled as Express either way.) — not pursued, still optional.
 6. ~~Does this build cover the webhook lab only, or also an inbound image pipeline?~~ — resolved: webhook lab only. No image-pipeline work exists anywhere in the project.
 
-## 8. Definition of done
+## 6. Definition of done
 - [ ] Tests pass locally and in CI.
 - [ ] E1 to E4 and E8 completed with raw data; E5 to E7 completed or explicitly skipped with reasons.
 - [ ] `FINDINGS.md` published with dates and caveats.

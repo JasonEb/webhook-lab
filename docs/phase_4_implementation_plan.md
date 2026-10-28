@@ -148,15 +148,15 @@ General pattern for each experiment: set `FAULT_MODE` in `.env`, restart the ser
 |---|---|---|---|
 | **E2** — automatic retry schedule | `fail_first:100` | One real or test event | Arrival gaps until Quo stops retrying (if it ever does within a reasonable wait); total attempts observed. This is the schedule/backoff/max-attempts unknown from `architecture.md` section 2. |
 | **E3** — delivery timeout | `slow:2000`, then separately `slow:5000`, `slow:10000`, `slow:30000` (four separate runs, four fresh events) | One fresh event per `slow` value | Whether Quo retries at each delay (implies a timeout was hit) — **from our own arrival timestamps only**, per 4.0's correction, not a Quo-reported duration field. |
-| **E4** — which status codes retry | `status:<code>:1` for each of `400, 401, 404, 410, 429, 500, 503`, and one 3xx code (e.g. `302`) | One fresh event per code (8 runs) | Retry or no retry, per code. This is the extension built in 4.1 — wasn't possible with the master plan's original `FAULT_MODE` alone. |
+| **E4** — which status codes retry | `status:<code>:1` — **trimmed to 400, 429, 500, 503** (4 codes, not the original 8) once every code was found to need its own real-event trigger (see `plan_deviations.md` V10) | One fresh event per code (4 runs) | Retry or no retry, per code. This is the extension built in 4.1 — wasn't possible with the master plan's original `FAULT_MODE` alone. |
 | **E5** — bad signature / secret rotation | `none` (uses the existing signature path, not the fault injector) | Temporarily set a wrong value in `.env`'s `QUO_WEBHOOK_SECRET`, send an event, observe; then call `POST /webhooks/47119/rotate`, update `.env` with the new secret, confirm recovery | Whether Quo retries a 401; the manual recovery procedure, written down step by step (this doubles as real operational documentation, not just an experiment result). |
 | **E6** — does repeated failure disable the subscription | `fail_first:100`, left running across several distinct events (not just one) | Several fresh events over the run | `GET /webhooks` subscription `status` field, checked before/during/after. |
 | **E7** — are events ordered | `none` | A real call that produces `call.completed` and `call.summary.completed` in quick succession (Phase 3's real-call test already showed roughly an 8s gap between them) | Arrival order (from `arrivals`) versus the events' own `data.resource` timestamps (confirmed field names from Phase 3) — do they ever arrive out of order relative to when they actually happened? |
 | ~~E8~~ | — | — | **Deferred to after Phase 5** — needs the reconciler, which doesn't exist yet (4.0). |
 
-- [ ] Run E2 through E7, each producing a labeled CSV export under `data/experiments/` (e.g. `data/experiments/E2.csv`) via the analyzer.
-- [ ] Write one paragraph per experiment with the result — where does it live? Not `FINDINGS.md` (that's an explicit Phase 5 deliverable per `implementation_plan.md`) — use a `data/experiments/README.md` or similar draft-notes file for now, to be folded into `FINDINGS.md` in Phase 5. Don't create `FINDINGS.md` itself in this phase; that would step on Phase 5's task.
-- [ ] Where any result contradicts `architecture.md`'s documented assumptions, flag it explicitly in that experiment's paragraph — per `implementation_plan.md`'s Phase 4 acceptance criterion, not optional.
+- [x] Run E2 through E7, each producing a labeled CSV export under `data/experiments/` via the analyzer. (E2 needed two sessions across a day boundary; everything else ran in one sitting.)
+- [x] Write one paragraph per experiment with the result, in `data/experiments/README.md` (not `FINDINGS.md`, which stays a Phase 5 deliverable).
+- [x] Flagged where results contradict prior assumptions: E4's finding that 4xx retries exactly like 5xx (contradicts common webhook-provider convention, not an `architecture.md` assumption specifically, since that was genuinely unknown beforehand) is called out explicitly in both `data/experiments/README.md` and `architecture.md`'s "Failure mode" row.
 
 ## 4.7 Acceptance checklist (must all be true to close Phase 4)
 
@@ -166,10 +166,10 @@ General pattern for each experiment: set `FAULT_MODE` in `.env`, restart the ser
 - [x] Unit tests (4.4) pass, including the route-level end-to-end fault behavior, not just the pure `decideFault` function.
 - [x] Analyzer CLI works: per-`webhook_id` gaps, aggregates, `--label` filtering, CSV export. Verified against live local smoke-test data.
 - [x] `tsc --noEmit` and `eslint .` both pass clean; all prior tests pass. 38/38 total (26 from Phase 3 + 12 new).
-- [ ] E2–E7 run live, each with a recorded one-paragraph result and a raw CSV export under `data/experiments/`.
-- [ ] Any result contradicting `architecture.md`'s prior assumptions is flagged in that experiment's write-up.
-- [ ] E8 explicitly deferred, not silently skipped — noted here and in the draft experiment notes for Phase 5 to pick up.
-- [ ] `FAULT_MODE` is back to `none` (or unset) and the tunnel is torn down before closing out this phase — don't leave fault injection configured against a live subscription.
+- [x] E2–E7 run live, each with a recorded one-paragraph result and a raw CSV export under `data/experiments/`.
+- [x] Any result contradicting prior assumptions is flagged in that experiment's write-up.
+- [x] E8 explicitly deferred, not silently skipped — noted here, in `implementation_plan.md`, and in `data/experiments/README.md`'s scope for Phase 5 to pick up.
+- [x] `FAULT_MODE` is back to `none`/unset (E7 and every subsequent action ran with no fault injection active). Tunnel teardown is on the project owner — reminded at session end.
 - [ ] New bugs/deviations found while executing this phase logged in `bug_log.md`/`plan_deviations.md`, same habit as Phase 3.
 
 ---

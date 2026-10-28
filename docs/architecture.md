@@ -39,15 +39,22 @@ Source: Quo beta webhook docs and a third-party skill write-up (see Sources).
 | Secret rotation | `POST /webhooks/:id/rotate` returns a new `whsec_` key. |
 | Events | message.*, call.*, contact.*, task.*, integration.* (see API reference for the full list). |
 | Migration | Legacy and beta signature schemes are not interchangeable. Quo's migration guide says to dedupe beta retries. |
-| Failure mode | A handler exception that becomes a 500 triggers a retry (third-party write-up). |
+| Failure mode | Confirmed directly (Phase 4, E4/E5), superseding the third-party write-up's narrower "500 triggers a retry" claim: **every tested non-2xx response retries** — 400, 401, 429, 500, 503 all retried once, with consistent ~5.1–5.2s timing regardless of code. Not special-cased by error category (client vs. server, auth vs. other). |
 
-### Unknown (the experiments exist to answer these)
-- Automatic retry schedule, backoff shape and maximum attempts.
-- Delivery timeout (how long Quo waits for our response).
-- Which response codes are retried (5xx only? 4xx? redirects?).
-- Whether repeated failure auto-disables a subscription.
-- Ordering guarantees between events for the same call or conversation.
-- Which specific `data.resource` field carries the event timestamp for `call.completed`/`call.summary.completed` (the general rule — use `data.resource.*`, not top-level `createdAt` — is confirmed; see Documented table).
+### Unknown (remaining after Phase 4's experiments, 2026-10-28)
+- **Maximum retry attempts / full backoff schedule.** E2 observed 4 attempts over ~39 minutes with growing (not clean-doubling) gaps — 4.2s, 5m37s, 32m54s — then observation stopped by scope decision, not because retries were confirmed to stop. The ceiling is still unknown.
+- **Exact delivery timeout value.** E3 bounded it to "greater than 10s, at or before 30s" — not pinned to a precise number (15s/20s weren't tested).
+- Whether a redirect (3xx) is retried — not tested (E4 was trimmed to 400/429/500/503; see `plan_deviations.md` V10).
+- Whether repeated failure *eventually* auto-disables a subscription over a long window — E6 only covered ~90s/3 events and found no change; a multi-hour test was explicitly not run.
+- Whether *independent* (non-causally-related) events can ever arrive out of order — E7's one trial only tested a causally-dependent pair (`call.completed`→`call.summary.completed`), which is a weaker test than independent events racing each other.
+
+### Resolved by Phase 4's experiments (see `data/experiments/README.md` for full write-ups and raw data)
+- **E2 — retry schedule:** confirmed growing backoff (not available anywhere in Quo's docs beforehand). Not clean exponential doubling.
+- **E3 — delivery timeout:** no retry at 2s/5s/10s delay; retry observed at 30s delay. Bounds the timeout to (10s, 30s].
+- **E4 — which status codes retry:** all of 400, 429, 500, 503 retried, with consistent ~5.1–5.2s timing regardless of code. **Notable: 4xx client errors are retried exactly like 5xx server errors** — Quo does not appear to treat them specially, which differs from common webhook-provider convention.
+- **E5 — bad signature / rotation:** a 401 retries exactly once (~5.2s later), same timing as E4's codes — no special-casing. `POST /webhooks/{id}/rotate` + updating the receiver's secret restores normal processing immediately, no propagation delay.
+- **E6 — repeated failure / subscription status:** no auto-disable observed within the tested window (bounded negative result, not proof it never happens).
+- **E7 — ordering:** one real call's `call.completed`/`call.summary.completed` pair arrived in causal order, consistent with both events' own timestamps. Single trial of a dependent pair, not a general ordering guarantee.
 
 ## 3. System overview
 
