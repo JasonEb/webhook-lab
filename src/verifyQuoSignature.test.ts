@@ -100,22 +100,28 @@ describe("verifyQuoSignature", () => {
 
   // A captured fixture ages out of a literal verifyQuoSignature() replay once its
   // webhook-timestamp is more than 5 minutes old (by design — see 1.8/1.9). So "the real
-  // capture verifies" is checked two ways: cryptographic authenticity (independent of
-  // wall-clock tolerance, via sign() directly) and that verifyQuoSignature correctly
-  // rejects it as stale rather than silently mis-verifying.
-  it.skipIf(!realSecret)(
-    "the real captured delivery's signature matches what the real secret produces",
-    () => {
-      const timestamp = new Date(Number(fixture.headers["webhook-timestamp"]) * 1000);
-      const expectedSig = new Webhook(realSecret as string).sign(
-        fixture.headers["webhook-id"] as string,
-        timestamp,
-        fixture.rawBody,
-      );
-      const signatures = (fixture.headers["webhook-signature"] as string).split(" ");
-      expect(signatures).toContain(expectedSig);
-    },
-  );
+  // capture verifies" was originally checked two ways: cryptographic authenticity
+  // (independent of wall-clock tolerance, via sign() directly) and that verifyQuoSignature
+  // correctly rejects it as stale rather than silently mis-verifying.
+  //
+  // The cryptographic-authenticity check is retired (not deleted, for documentation value):
+  // this fixture was signed with the original Phase 0 secret, which was permanently rotated
+  // away during Phase 4's E5 experiment (architecture.md section 2 / data/experiments/README.md
+  // "E5 — bad signature / secret rotation"). The current QUO_WEBHOOK_SECRET can never match
+  // this fixture's stored signature again — that's expected, not a regression. The fixture's
+  // authenticity was already established once (Phase 1); re-verifying it forever against a
+  // secret that has since rotated isn't meaningful. The staleness-rejection check below still
+  // holds, since timestamp tolerance is checked before signature comparison either way.
+  it.skip("the real captured delivery's signature matches what the real secret produces (retired: secret rotated in Phase 4 E5)", () => {
+    const timestamp = new Date(Number(fixture.headers["webhook-timestamp"]) * 1000);
+    const expectedSig = new Webhook(realSecret as string).sign(
+      fixture.headers["webhook-id"] as string,
+      timestamp,
+      fixture.rawBody,
+    );
+    const signatures = (fixture.headers["webhook-signature"] as string).split(" ");
+    expect(signatures).toContain(expectedSig);
+  });
 
   it.skipIf(!realSecret)(
     "verifyQuoSignature correctly rejects the real capture once it is outside the 5-minute tolerance",
